@@ -99,6 +99,13 @@ static class HfChecks
    Assert((await Turn()).Delivery=="normal","no back-to-back tangents");clock.Now=clock.Now.AddMinutes(4);
    Assert((await Turn(20)).Delivery=="normal","critical health cannot hold floor for tangent");
   }));
+
+  cases.Add(("hf","HfExplicitInterruptClearsTemporalImage",async()=>{
+   var s=new CoachSession(new WorldStore(Path.GetFullPath(".dev/checks/"+Guid.NewGuid().ToString("N"))));var k=await s.EnterAsync(Guid.NewGuid());var wire=new Wire();var coach=new HuggingFaceCoach(s,new HuggingFace(new HttpClient(wire),"hf_test"));
+   s.Observe(new(k,1,DateTimeOffset.UtcNow,true,true,100,100,false,800,600,"AA==",[]));await coach.TurnAsync(k,"before","look",false,localVoice:true);coach.Interrupt();
+   s.Observe(new(k,2,DateTimeOffset.UtcNow,true,true,100,100,false,800,600,"BB==",[]));await coach.TurnAsync(k,"after","look now",false,localVoice:true);
+   Assert(!wire.Bodies[1].Contains("data:image/png;base64,AA=="),"explicit interruption invalidates before image");
+  }));
   cases.Add(("hf","HfCreditErrorIsSafeAndPermanent",async()=>{
    var hf=new HuggingFace(new HttpClient(new Wire{Status=402}),"hf_private_test");
    try{await hf.SpeakAsync("Hello");}catch(VoiceConnectionException e){Assert(!e.Retryable&&e.Message.Contains("Hugging Face")&&!e.Message.Contains("hf_private_test"),"safe quota explanation");return;}throw new Exception("Missing credit rejection");

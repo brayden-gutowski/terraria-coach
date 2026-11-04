@@ -7,7 +7,7 @@ public class HuggingFaceCoach(CoachSession session,HuggingFace hf,TimeProvider? 
  readonly TimeProvider time=clock??TimeProvider.System;
  SessionKey? sceneOwner;long sceneVersion=-1;Observation? previous;
  DateTimeOffset sceneStarted,lastSpeech;DateTimeOffset? lastTangent;
- public void Interrupt(){lock(sync){current?.Cancel();current=null;}}
+ public void Interrupt(){lock(sync){current?.Cancel();current=null;previous=null;}}
  public static bool IsRepeatedSpeech(string speech,IEnumerable<string> dialogue)
  {
   HashSet<string> Words(string s)=>System.Text.RegularExpressions.Regex.Matches(s.ToLowerInvariant(),"[a-z0-9]+").Select(m=>m.Value).ToHashSet();
@@ -27,6 +27,7 @@ public class HuggingFaceCoach(CoachSession session,HuggingFace hf,TimeProvider? 
    if(proactive&&frame?.ImageBase64 is null)return new("",null);
    var now=time.GetUtcNow();Observation? before;bool allowChatter,allowTangent;
    lock(sync){
+    Validate();
     if(sceneOwner!=key||sceneVersion!=version){sceneOwner=key;sceneVersion=version;previous=null;sceneStarted=now;lastSpeech=now-TimeSpan.FromSeconds(25);lastTangent=null;}
     before=previous is not null&&frame?.ImageBase64 is not null&&previous.ImageBase64!=frame.ImageBase64&&frame.CapturedAt>=previous.CapturedAt&&frame.CapturedAt-previous.CapturedAt<=TimeSpan.FromSeconds(60)?previous:null;
     allowChatter=now-lastSpeech>=TimeSpan.FromSeconds(25);
@@ -44,7 +45,7 @@ public class HuggingFaceCoach(CoachSession session,HuggingFace hf,TimeProvider? 
    // Provider metadata is a suggestion; the host enforces the cadence and safety gate.
    if(decision.Delivery=="tangent"&&!allowTangent)decision=decision with{Delivery="normal",Interruption=""};
    if(decision.Delivery=="tangent"&&string.IsNullOrWhiteSpace(decision.Interruption))decision=decision with{Interruption="Wait, let me finish this thought."};
-   lock(sync){if(frame?.ImageBase64 is not null)previous=frame;}
+   lock(sync){Validate();if(frame?.ImageBase64 is not null)previous=frame;}
    int i=0;foreach(var update in decision.Memory){Validate();await session.ApplyAsync(new(key,id+":memory:"+(i++),update.Kind,update.Text,update.Subject,update.Evidence,update.EpisodeId),token);}
    Validate();if(string.IsNullOrWhiteSpace(decision.Speech))return new("",null);
    timer.Restart();byte[]? audio=null,aside=null;
@@ -55,7 +56,7 @@ public class HuggingFaceCoach(CoachSession session,HuggingFace hf,TimeProvider? 
    }
    Validate();var voiceMs=timer.Elapsed.TotalMilliseconds;
    await session.ApplyAsync(new(key,id+":coach","transcript","Coach: "+decision.Speech),token);Validate();
-   lock(sync){lastSpeech=time.GetUtcNow();if(decision.Delivery=="tangent")lastTangent=lastSpeech;}
+   lock(sync){Validate();lastSpeech=time.GetUtcNow();if(decision.Delivery=="tangent")lastTangent=lastSpeech;}
    return new(decision.Speech,audio is null?null:Convert.ToBase64String(audio),LocalVoice:localVoice,InferenceMs:inferenceMs,VoiceMs:voiceMs,Delivery:decision.Delivery,Interruption:decision.Delivery=="tangent"?decision.Interruption:"",AsideAudioBase64:aside is null?null:Convert.ToBase64String(aside));
   }finally{lock(sync){if(current==lifetime)current=null;}}
  }

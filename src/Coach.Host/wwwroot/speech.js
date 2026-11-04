@@ -28,13 +28,13 @@ export class SpeechSegmenter {
    this.prefix.push(samples);this.prefixLength+=samples.length;
    while(this.prefix.length>1&&this.prefixLength-this.prefix[0].length>=this.rate*.32)this.prefixLength-=this.prefix.shift().length;
    this.loud=voiced?this.loud+samples.length:Math.max(0,this.loud-samples.length);
-   if(this.loud<this.rate*.18)return event;
+   if(this.loud<this.rate*.12)return event;
    this.speaking=true;event.started=true;this.parts=this.prefix;this.length=this.prefixLength;this.voiced=this.loud;this.prefix=[];this.prefixLength=0;
   }else{this.parts.push(samples);this.length+=samples.length;if(voiced)this.voiced+=samples.length;}
   this.quiet=loud?0:this.quiet+samples.length;
   if(this.quiet>=this.rate*.45||this.length>=this.rate*20){
    const partial=this.quiet<this.rate*.45;
-   if(this.voiced>=this.rate*.18){const joined=new Float32Array(this.length);let at=0;for(const part of this.parts){joined.set(part,at);at+=part.length;}event.clip=joined;event.partial=partial;}
+   if(this.voiced>=this.rate*.12){const joined=new Float32Array(this.length);let at=0;for(const part of this.parts){joined.set(part,at);at+=part.length;}event.clip=joined;event.partial=partial;}
    if(partial){this.parts=[];this.length=0;this.voiced=0;}else this.reset();
   }return event;
  }

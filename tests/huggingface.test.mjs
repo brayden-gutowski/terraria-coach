@@ -122,3 +122,15 @@ test('FocusLossCancelsNativeTangentContinuation',async()=>{
  const spoken=[];let cancels=0;globalThis.speechSynthesis={getVoices:()=>[{localService:true,lang:'en-US'}],speak:u=>spoken.push(u),cancel:()=>cancels++};globalThis.SpeechSynthesisUtterance=class{constructor(text){this.text=text}};
  try{const f=fixture(async()=>({speech:'First sentence. Second sentence.',delivery:'tangent',localVoice:true}));await f.client.requestTurn('',true);const old=spoken[0];f.client.setActivity(false,false);old.onend();assert.equal(spoken.length,1);assert.equal(cancels,1);assert.equal(f.client.speaking,false);}finally{delete globalThis.speechSynthesis;delete globalThis.SpeechSynthesisUtterance;}
 });
+
+test('ReplacementTurnWaitsForPreviousInterruptToFinish',async()=>{
+ const f=fixture();let release;const paths=[];f.client.post=async(path)=>{paths.push(path);if(path==='/api/interrupt')await new Promise(r=>release=r);return{speech:''};};
+ f.client.interrupt();f.client.pendingText='Please answer this new question.';const replacement=f.client.respondPending();await new Promise(r=>setImmediate(r));
+ assert.equal(paths.includes('/api/turn'),false,'late interrupt must not cancel replacement');release();await replacement;assert.equal(paths.filter(p=>p==='/api/turn').length,1);
+});
+test('ShortClearWordCanStillBeRecognized',()=>{
+ const vad=new SpeechSegmenter(16000,.04);let clip;
+ for(let i=0;i<3;i++)vad.push(voiced(16000,800,.2));
+ for(let i=0;i<12;i++){const e=vad.push(new Float32Array(800));if(e.clip)clip=e.clip;}
+ assert.ok(clip,'150ms voiced word must survive breath filtering');
+});

@@ -14,7 +14,7 @@ export class VoiceClient {
   this.clientId=uid();this.leaseId=uid();this.session=null;this.wanted=false;this.active=false;this.muted=false;this.claimed=false;this.claiming=false;
   this.stream=null;this.context=null;this.audio=null;this.node=null;this.source=null;this.segmenter=null;this.url=null;
   this.epoch=0;this.revision=0;this.setupRevision=0;this.abort=null;this.busy=false;this.userSpeaking=false;this.speaking=false;this.cooldown=8000;this.sensitivity=.04;
-  this.lastPacket=Date.now();this.lastReview=0;this.retryAt=0;this.failures=0;this.audioQueue=[];this.processingAudio=false;this.audioAbort=null;this.pendingText='';
+  this.lastPacket=Date.now();this.lastReview=0;this.retryAt=0;this.failures=0;this.audioQueue=[];this.processingAudio=false;this.audioAbort=null;this.pendingText='';this.interruptBarrier=null;
  }
  allowed(){return !!(this.wanted&&this.active&&!this.muted&&this.session);}
  enableTracks(){for(const t of this.stream?.getAudioTracks()??[])t.enabled=this.allowed();}
@@ -105,6 +105,8 @@ export class VoiceClient {
   if(!this.allowed()||!this.claimed||Date.now()<this.retryAt)return;
   const owner=this.session,epoch=this.epoch,abort=new AbortController();this.abort=abort;this.busy=true;this.lastReview=Date.now();
   try{
+   if(this.interruptBarrier)await this.interruptBarrier;
+   if(!this.valid(owner,epoch,revision))return;
    this.onStatus(proactive?'Watching your surroundings…':'Coach is thinking…');
    const reply=await this.post('/api/turn',{session:owner,clientId:this.clientId,leaseId:this.leaseId,id:uid(),text,proactive,transcribed:!proactive,localVoice:!!this.localVoice()},false,abort.signal);
    if(!this.valid(owner,epoch,revision))return;
@@ -158,7 +160,11 @@ export class VoiceClient {
  stopPlayback(){this.playback=null;this.stopAside();if(this.utterance){this.utterance=null;globalThis.speechSynthesis?.cancel();}if(this.audio){this.audio.onended=null;this.audio.onerror=null;this.audio.pause();this.audio.removeAttribute('src');}if(this.url){URL.revokeObjectURL(this.url);this.url=null;}this.speaking=false;}
  interrupt(){
   this.revision++;this.abort?.abort();this.abort=null;this.busy=false;this.stopPlayback();
-  if(this.session&&this.claimed)this.post('/api/interrupt',{session:this.session,clientId:this.clientId,leaseId:this.leaseId}).catch(()=>{});
+  if(this.session&&this.claimed){
+   const stopping=this.post('/api/interrupt',{session:this.session,clientId:this.clientId,leaseId:this.leaseId}).catch(()=>{});
+   const barrier=Promise.all([this.interruptBarrier,stopping]).then(()=>{});this.interruptBarrier=barrier;
+   barrier.then(()=>{if(this.interruptBarrier===barrier)this.interruptBarrier=null;});
+  }
  }
  failure(e){
   if(e.code==='voice_lease_expired')this.claimed=false;

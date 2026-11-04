@@ -23,22 +23,22 @@ Single-player, continuous mic, visible-only creatures, existing allowlisted tele
 
 Files: wwwroot/speech.js, voice.js, app.js/index.html; tests/huggingface.test.mjs.
 Interface: SpeechSegmenter retains push/reset, adds rms/effectiveThreshold diagnostics; starts only after sustained voiced audio. Browser disables AGC and offers thresholds .015–.16, default .04; saved old values migrated to new setting key.
-- [ ] Add realistic voiced/noise regression signals, assert breath/noise does not upload and speech with prefix/tail still does. Run RED.
-- [ ] Implement amplitude + normalized periodicity onset check with bounded CPU, preserve long-segment and silence safety. Add input meter and explicit threshold labels. Run browser suite GREEN.
-- [ ] Commit task with evidence in ledger.
+- [x] Add realistic voiced/noise regression signals, assert breath/noise does not upload and speech with prefix/tail still does. Run RED.
+- [x] Implement amplitude + normalized periodicity onset check with bounded CPU, preserve long-segment and silence safety. Add input meter and explicit threshold labels. Run browser suite GREEN.
+- [x] Commit task with evidence in ledger.
 
 ### Task2: Human personality, cadence and scene continuity
 
 Files: Persona.txt, HuggingFace.cs/HuggingFaceCoach.cs, tests/Coach.Checks/HfChecks.cs.
 Interfaces: CoachDecision/TurnResult Delivery='normal'|'panic'|'tangent', Interruption string<=100; optional remote AsideAudioBase64. DecideAsync optional previousFrame, allowChatter, allowTangent. Host validates model metadata and gates tangent eligibility; no schema change.
-- [ ] Wire regressions for optional metadata, chronological two-image context, focus/world isolation, tangent cooldown and ordinary fast output. Run RED.
-- [ ] Rewrite persona/transport instructions, add bounded scene/cadence state, preserve fast default and existing errors. Up to2 compact memory updates permit joke+learning together. Local tangents return text; remote synthesizes brief interruption alongside main audio. Run C# suite GREEN.
-- [ ] Commit task with evidence in ledger.
+- [x] Wire regressions for optional metadata, chronological two-image context, focus/world isolation, tangent cooldown and ordinary fast output. Run RED.
+- [x] Rewrite persona/transport instructions, add bounded scene/cadence state, preserve fast default and existing errors. Up to2 compact memory updates permit joke+learning together. Local tangents return text; remote synthesizes brief interruption alongside main audio. Run C# suite GREEN.
+- [x] Commit task with evidence in ledger.
 
 ### Task3: Floor-holding playback and delivery
 
 Files: voice.js, browser tests, validation doc.
 Interface: confirmed words queued while coach plays; tangent heckle once then continuation. Local playback sentence queue; remote playback pauses main, plays pre-generated aside, resumes. Lifecycle invalidates both. Completion dispatches queued text without waiting for proactive cooldown.
-- [ ] Regression tests for no raw cancellation, tangent local/remote rebuke+resume, pending text, no proactive overlap and lifecycle cleanup. Run RED.
-- [ ] Implement bounded playback state and protected tangents, retain explicit controls. Run whole suite GREEN.
-- [ ] Review whole branch independently, fix material findings with regressions. Publish artifacts/companion-huggingface-personality locally, run isolated published HTTP/native-browser checks, inspect UI. Commit and record live-test limitations. No public push required by current request.
+- [x] Regression tests for no raw cancellation, tangent local/remote rebuke+resume, pending text, no proactive overlap and lifecycle cleanup. Run RED.
+- [x] Implement bounded playback state and protected tangents, retain explicit controls. Run whole suite GREEN.
+- [x] Review whole branch independently, fix material findings with regressions. Publish artifacts/companion-huggingface-personality locally, run isolated published HTTP/native-browser checks, inspect UI. Commit and record live-test limitations. No public push required by current request.
