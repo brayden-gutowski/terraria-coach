@@ -4,7 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 namespace Coach.Host;
 public record MemoryUpdate(string Kind,string Text,string? Subject=null,string? Evidence=null,string? EpisodeId=null);
-public record CoachDecision(string Speech,MemoryUpdate[] Memory,string Delivery="normal",string Interruption="");
+public record CoachDecision(string Speech,MemoryUpdate[] Memory,string Delivery="normal",string Interruption="",string Reason="reply");
 public class HuggingFace(HttpClient client,string token,string visionModel="Qwen/Qwen3.6-35B-A3B:deepinfra",string asrModel="openai/whisper-large-v3-turbo",string ttsModel="hexgrad/Kokoro-82M",string voice="af_heart")
 {
  public string VisionModel=>visionModel;
@@ -35,19 +35,18 @@ public class HuggingFace(HttpClient client,string token,string visionModel="Qwen
   using var response=await SendAsync("deepinfra/v1/openai/audio/speech",JsonContent.Create(new{model=ttsModel,input=text,voice,response_format="mp3"}),ct);
   var audio=await response.Content.ReadAsByteArrayAsync(ct);if(audio.Length==0||audio.Length>8*1024*1024)throw new InvalidDataException("Hugging Face returned invalid speech audio.");return audio;
  }
- public async Task<CoachDecision> DecideAsync(string context,Observation? frame,string text,bool proactive,CancellationToken ct=default,IReadOnlyList<string>? dialogue=null,Observation? previousFrame=null,bool allowChatter=false,bool allowTangent=false)
+ public async Task<CoachDecision> DecideAsync(string context,Observation? frame,string text,bool proactive,CancellationToken ct=default,IReadOnlyList<string>? dialogue=null,Observation? previousFrame=null,bool allowChatter=false)
  {
   Protocol.Text(text);var content=new List<object>();
-  content.Add(new{type="text",text=proactive?"Watch the current scene as real events. React naturally to something new, impossible, funny or dangerous; silence is fine if nothing is worth saying.":text});
+  content.Add(new{type="text",text=proactive?"Watch quietly. Usually return empty speech. Only speak for immediate danger, a genuinely worthwhile discovery, or a rare brief callback. Routine scenery changes are not noteworthy.":text});
   if(previousFrame?.ImageBase64 is not null){
    content.Add(new{type="text",text=$"Earlier camera image, {Math.Max(0,(frame!.CapturedAt-previousFrame.CapturedAt).TotalSeconds):F1} seconds before the current image. Compare visible changes; do not invent what happened between frames."});
    content.Add(new{type="image_url",image_url=new{url="data:image/png;base64,"+previousFrame.ImageBase64}});
   }
   content.Add(new{type="text",text="Current instrument readings: "+JsonSerializer.Serialize(new{health=frame?.Health,maxHealth=frame?.MaxHealth,dead=frame?.Dead,readings=frame?.Readings,hasCurrentImage=frame?.ImageBase64 is not null},Protocol.Json)});
   if(frame?.ImageBase64 is not null){content.Add(new{type="text",text="Current camera image:"});content.Add(new{type="image_url",image_url=new{url="data:image/png;base64,"+frame.ImageBase64}});}
-  var format="\nReturn ONLY JSON: speech (string FIRST), delivery (normal, panic or tangent), interruption (short string for a tangent heckle, otherwise empty), memory (array). Answer actual speech directly. Ordinary replies: one to three natural sentences, usually under80 words. Panic: a brief, messy human reaction then practical advice, not an endless scream. Never replay an old greeting or generic pep talk. No analysis or formatting in speech. At most TWO compact meaningful memory updates, otherwise empty array. Memory fields: kind, text, subject, evidence, episodeId. Kinds: learned_fact, persona_update, summary, question, encounter_start, encounter_success, encounter_failure, encounter_end. Evidence: observation, player_report, estimate. Encounters require visible subject and stable episodeId. Remember callback origins and shared stories as well as survival discoveries. Do not invent unseen outcomes. All speech <=1600 characters; interruption <=100 characters. No tools are available.";
-  format+=allowChatter?" A conversational opening is available: you may make a fresh observation or callback without a question, even if nothing is dangerous. Do not force filler.":" No idle chatter opening: in observation-only turns, speak for a new sight, meaningful change, surprise or danger; otherwise use empty speech.";
-  format+=allowTangent?" A tangent opportunity is available ONLY if the visible scene is calm. You may occasionally choose delivery tangent and tell a specific odd story/theory in120-180 words, with a short playful interruption line. Most opportunities should still be normal replies or silence.":" No tangent opportunity: use normal or panic delivery and keep speech short.";
+  var format="\nReturn ONLY JSON: speech (string FIRST), delivery (normal or panic), reason (reply, danger, discovery, callback or scenery), memory (array). Answer actual words directly. Vary length: a few words or one sentence often suffices; use a few sentences only for a question that needs them. No minimum length. No tangents or rants. Speech ceilings: observation-only30 words, direct replies90 words. Natural profanity, teasing, dry humor and shared callbacks are encouraged inside these limits; never pad a reply to fit a joke. Never replay a greeting, pep talk or full joke script. Keep the real-life premise implicit: backgrounds/biomes/travel/lighting changes are ordinary. Set reason scenery for mere scenery observations; usually omit those entirely. Danger means an actual immediate threat in the current scene or instrument readings, not discomfort about scenery or reality. Panic is brief then useful. No analysis/formatting in speech. At most TWO compact memory updates, otherwise empty array. Memory fields: kind, text, subject, evidence, episodeId. Kinds: learned_fact, persona_update, summary, question, encounter_start, encounter_success, encounter_failure, encounter_end. Evidence: observation, player_report, estimate. Encounters require visible subject/stable episodeId. Preserve specific callback origins/developments and learned mechanics in memory. No invented unseen outcomes. Speech<=1600 characters. No tools.";
+  format+=allowChatter?" Ordinary unsolicited comments are eligible, not required. Silence remains the default; speak only if a brief line is really worth it.":" The ordinary unsolicited channel is closed. In observation-only mode return empty speech unless there is immediate danger. Direct questions still deserve answers.";
   var messages=new List<object>{new{role="system",content=context+format}};
   var history=(dialogue??[]).ToList();
   if(!proactive&&history.LastOrDefault()=="You: "+text)history.RemoveAt(history.Count-1);
@@ -57,7 +56,7 @@ public class HuggingFace(HttpClient client,string token,string visionModel="Qwen
    else if(line.StartsWith("Coach: ")&&seen.Add(line[7..].Trim()))messages.Add(new{role="assistant",content=JsonSerializer.Serialize(new{speech=line[7..],memory=Array.Empty<object>()})});
   }
   messages.Add(new{role="user",content});
-  var body=new Dictionary<string,object>{{"model",visionModel},{"messages",messages},{"response_format",new{type="json_object"}},{"max_tokens",allowTangent?850:420},{"temperature",.7},{"stream",false}};
+  var body=new Dictionary<string,object>{{"model",visionModel},{"messages",messages},{"response_format",new{type="json_object"}},{"max_tokens",420},{"temperature",.7},{"stream",false}};
   if(visionModel.StartsWith("Qwen/Qwen3.6-",StringComparison.OrdinalIgnoreCase))body["chat_template_kwargs"]=new{enable_thinking=false};
   using var response=await SendAsync("v1/chat/completions",JsonContent.Create(body),ct);
   using var json=JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));var result=json.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString()??"";
@@ -79,8 +78,10 @@ public class HuggingFace(HttpClient client,string token,string visionModel="Qwen
   var deliveryField=Field(json.RootElement,"delivery");var delivery=deliveryField.ValueKind==JsonValueKind.String?deliveryField.GetString():null;
   if(delivery is not ("normal" or "panic" or "tangent"))delivery="normal";
   var asideField=Field(json.RootElement,"interruption");var aside=asideField.ValueKind==JsonValueKind.String?asideField.GetString()??"":"";if(aside.Length>100)aside="";
+  var reasonField=Field(json.RootElement,"reason");var reason=reasonField.ValueKind==JsonValueKind.String?reasonField.GetString():null;
+  if(reason is not ("reply" or "danger" or "discovery" or "callback" or "scenery"))reason="reply";
   var memory=new List<MemoryUpdate>();var memoryField=Field(json.RootElement,"memory");
-  if(memoryField.ValueKind!=JsonValueKind.Array)return new(speech,[],delivery,aside);
+  if(memoryField.ValueKind!=JsonValueKind.Array)return new(speech,[],delivery,aside,reason);
   var options=new JsonSerializerOptions(Protocol.Json){UnmappedMemberHandling=System.Text.Json.Serialization.JsonUnmappedMemberHandling.Skip};
   var dummy=new SessionKey(Guid.NewGuid(),Guid.NewGuid());
   foreach(var item in memoryField.EnumerateArray().Take(6)){
@@ -89,6 +90,6 @@ public class HuggingFace(HttpClient client,string token,string visionModel="Qwen
     if(update is null||update.Kind=="transcript")continue;
     Protocol.ReadEvent(JsonSerializer.Serialize(new CoachEvent(dummy,"validate",update.Kind,update.Text,update.Subject,update.Evidence,update.EpisodeId),Protocol.Json));memory.Add(update);
    }catch(Exception e)when(e is JsonException or ArgumentException){/* Invalid learning is ignored; valid speech is still usable. */}
-  }return new(speech,memory.ToArray(),delivery,aside);
+  }return new(speech,memory.ToArray(),delivery,aside,reason);
  }
 }

@@ -89,15 +89,29 @@ static class HfChecks
    Assert(!wire.Bodies[3].Contains("data:image/png;base64,CC=="),"world boundary clears previous image");
   }));
 
-  cases.Add(("hf","HfTangentsRespectWarmupCooldownAndHealth",async()=>{
-   var s=new CoachSession(new WorldStore(Path.GetFullPath(".dev/checks/"+Guid.NewGuid().ToString("N"))));var k=await s.EnterAsync(Guid.NewGuid());
-   var wire=new Wire{ChatReply="{\"speech\":\"I have a weird theory.\",\"delivery\":\"tangent\",\"interruption\":\"Hold on.\",\"memory\":[]}"};
-   var clock=new TestClock();var coach=new HuggingFaceCoach(s,new HuggingFace(new HttpClient(wire),"hf_test"),clock);long sequence=0;
-   async Task<TurnResult> Turn(int health=100){s.Observe(new(k,++sequence,DateTimeOffset.UtcNow,true,true,health,100,false,800,600,"AA==",[]));return await coach.TurnAsync(k,"cadence"+sequence,"",true,localVoice:true);}
-   Assert((await Turn()).Delivery=="normal","no immediate tangent");clock.Now=clock.Now.AddSeconds(91);
-   Assert((await Turn()).Delivery=="tangent","calm tangent opportunity after warmup");
-   Assert((await Turn()).Delivery=="normal","no back-to-back tangents");clock.Now=clock.Now.AddMinutes(4);
-   Assert((await Turn(20)).Delivery=="normal","critical health cannot hold floor for tangent");
+
+  cases.Add(("hf","HfUnsolicitedSpeechLeavesQuietAcrossFocusChanges",async()=>{
+   var s=new CoachSession(new WorldStore(Path.GetFullPath(".dev/checks/"+Guid.NewGuid().ToString("N"))));var k=await s.EnterAsync(Guid.NewGuid());var clock=new TestClock();var wire=new Wire();var coach=new HuggingFaceCoach(s,new HuggingFace(new HttpClient(wire),"hf_test"),clock);long n=0;
+   async Task<TurnResult> Turn(bool proactive=true){s.Observe(new(k,++n,DateTimeOffset.UtcNow,true,true,100,100,false,800,600,"AA==",[]));return await coach.TurnAsync(k,"quiet"+n,proactive?"":"hello",proactive,localVoice:true);}
+   Assert((await Turn()).Speech!="","first useful observation allowed");clock.Now=clock.Now.AddSeconds(8);Assert((await Turn()).Speech=="","do not talk every observation");
+   s.Observe(new(k,++n,DateTimeOffset.UtcNow,false,true,100,100,false,800,600,null,[]));clock.Now=clock.Now.AddSeconds(8);Assert((await Turn()).Speech=="","focus changes do not reset quiet interval");
+   Assert((await Turn(false)).Speech!="","answer direct question during quiet interval");clock.Now=clock.Now.AddSeconds(61);Assert((await Turn()).Speech!="","ordinary comments can resume after a minute");
+  }));
+  cases.Add(("hf","HfDangerWarningsAreBriefAndRateLimited",async()=>{
+   var s=new CoachSession(new WorldStore(Path.GetFullPath(".dev/checks/"+Guid.NewGuid().ToString("N"))));var k=await s.EnterAsync(Guid.NewGuid());var clock=new TestClock();var wire=new Wire{ChatReply="{\"speech\":\"Back away from that creature.\",\"reason\":\"danger\",\"memory\":[]}"};var coach=new HuggingFaceCoach(s,new HuggingFace(new HttpClient(wire),"hf_test"),clock);long n=0;
+   async Task<TurnResult> Turn(int health=100){s.Observe(new(k,++n,DateTimeOffset.UtcNow,true,true,health,100,false,800,600,"AA==",[]));return await coach.TurnAsync(k,"danger"+n,"",true,localVoice:true);}
+   Assert((await Turn()).Speech!="","initial danger warning");clock.Now=clock.Now.AddSeconds(8);Assert((await Turn()).Speech=="","same danger does not fill every silence");clock.Now=clock.Now.AddSeconds(8);Assert((await Turn()).Speech!="","new urgent reaction has shorter cooldown");
+   clock.Now=clock.Now.AddSeconds(1);Assert((await Turn(20)).Speech!="","worsening critical health bypasses cooldown");clock.Now=clock.Now.AddSeconds(1);Assert((await Turn(20)).Speech=="","unchanged critical health does not repeat continuously");
+  }));
+  cases.Add(("hf","HfOldTangentOutputCannotStartARantOrAside",async()=>{
+   var s=new CoachSession(new WorldStore(Path.GetFullPath(".dev/checks/"+Guid.NewGuid().ToString("N"))));var k=await s.EnterAsync(Guid.NewGuid());s.Observe(new(k,1,DateTimeOffset.UtcNow,true,true,100,100,false,800,600,"AA==",[]));
+   var wire=new Wire{ChatReply=JsonSerializer.Serialize(new{speech=string.Join(" ",Enumerable.Range(1,150).Select(i=>"point"+i)),delivery="tangent",interruption="Let me finish.",memory=Array.Empty<object>()})};var coach=new HuggingFaceCoach(s,new HuggingFace(new HttpClient(wire),"hf_test"));
+   var reply=await coach.TurnAsync(k,"rant","hello",false);
+   Assert(reply.Delivery=="normal"&&reply.Interruption==""&&reply.AsideAudioBase64 is null,"tangents disabled even if model emits old format");Assert(reply.Speech.Split(' ',StringSplitOptions.RemoveEmptyEntries).Length<=90,"spoken answer cannot be a long rant");Assert(wire.Urls.Count==2,"no secondary synthesis for heckle");
+  }));
+  cases.Add(("hf","HfSceneryAloneDoesNotCauseUnsolicitedSpeech",async()=>{
+   var s=new CoachSession(new WorldStore(Path.GetFullPath(".dev/checks/"+Guid.NewGuid().ToString("N"))));var k=await s.EnterAsync(Guid.NewGuid());s.Observe(new(k,1,DateTimeOffset.UtcNow,true,true,100,100,false,800,600,"AA==",[]));
+   var wire=new Wire{ChatReply="{\"speech\":\"The trees look different.\",\"reason\":\"scenery\",\"memory\":[]}"};var coach=new HuggingFaceCoach(s,new HuggingFace(new HttpClient(wire),"hf_test"));Assert((await coach.TurnAsync(k,"scenery","",true,localVoice:true)).Speech=="","routine background changes are silent");
   }));
 
   cases.Add(("hf","HfExplicitInterruptClearsTemporalImage",async()=>{
