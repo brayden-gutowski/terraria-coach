@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Terraria Voice</title><link rel="stylesheet" href="style.css"></head>
+<body><main>
+<p class="eyebrow">YOUR WORLD. YOUR COACH.</p><h1>Someone’s got your back.</h1>
+<p class="intro">A survival coach with a big heart, a growing ego, and a terrible fear of heights.</p>
+<section class="panel"><div class="row"><h2>Coach connection</h2><span id="mode">Connecting…</span></div>
+<p id="world">Waiting for a single-player world.</p><p id="status" role="status" aria-live="polite">Disconnected</p>
+<div class="row"><button id="connect">Connect voice</button><button id="disconnect" class="secondary">Disconnect</button><button id="mute" class="secondary">Mute microphone &amp; coach</button></div>
+<p class="hint">Connect once, then talk freely while playing. Hugging Face credits cover vision and speech. Listening pauses when Terraria loses focus; only detected speech is uploaded. Raw recordings are not saved locally.</p>
+<div class="settings"><label>Microphone<select id="input"><option value="">System default</option></select></label><label>Speaker<select id="output"><option value="">System default</option></select></label><label>Observation interval<select id="cooldown"><option value="8000">Normal · 8 seconds</option><option value="15000">Quiet · 15 seconds</option><option value="3000">Frequent · 3 seconds</option></select></label></div>
+<label>Coach voice<select id="voice-mode"><option value="local">Fast · local system voice</option><option value="huggingface">Hugging Face neural voice</option></select></label><p class="hint">Fast voice uses your system’s default speaker and an installed English voice. If unavailable, Hugging Face voice is used. Neural voice adds a separate audio-generation request.</p><p id="timing" class="hint"></p><label>Microphone sensitivity<select id="sensitivity"><option value="0.01">More sensitive · quiet microphone</option><option value="0.02" selected>Balanced</option><option value="0.04">Less sensitive · noisy room</option></select></label><p id="notice" class="hint"></p></section>
+<section class="panel"><h2>Conversation</h2><div id="transcript" role="log" aria-live="polite"><p class="hint">Your conversation will appear here.</p></div></section>
+<details class="panel"><summary>Setup &amp; world memory</summary><p>Copy this pairing token into the Terraria Voice mod configuration. Keep the companion running and this page open while you play.</p><label>Mod pairing token<input id="pairing" readonly aria-label="Mod pairing token"></label><p id="model"></p><p>Every world gets its own coach. Returning to a world restores its memories and personality. Reset archives the current memories and starts that world’s coach fresh.</p><button id="reset" class="danger">Reset this world’s coach…</button></details>
+<footer>Single-player · Always listening during play · Made for strange adventures on Earth</footer>
+</main><script type="module" src="app.js"></script></body></html>

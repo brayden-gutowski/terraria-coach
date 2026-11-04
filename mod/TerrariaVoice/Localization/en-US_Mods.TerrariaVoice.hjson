@@ -1,0 +1,17 @@
+"Keybinds.Toggle coach mute.DisplayName": Toggle coach mute
+
+Configs: {
+	CoachConfig: {
+		DisplayName: Coach Config
+
+		PairingToken: {
+			Label: Pairing Token
+			Tooltip: ""
+		}
+
+		Enabled: {
+			Label: Enabled
+			Tooltip: ""
+		}
+	}
+}

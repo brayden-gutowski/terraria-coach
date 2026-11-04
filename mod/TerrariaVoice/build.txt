@@ -1,0 +1,5 @@
+displayName = Terraria Voice
+author = Brady
+version = 0.2
+side = Client
+buildIgnore = bin/*, obj/*, *.csproj

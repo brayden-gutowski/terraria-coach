@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup><TargetFramework>net8.0</TargetFramework><LangVersion>12</LangVersion><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><AssemblyName>TerrariaVoice</AssemblyName><BuildMod>false</BuildMod></PropertyGroup>
+ <Import Project="$(TModLoaderPath)/tMLMod.targets" Condition="Exists('$(TModLoaderPath)/tMLMod.targets')" />
+ <ItemGroup><Compile Include="../../src/Coach.Core/Protocol.cs" Link="Protocol.cs" /><Compile Include="../../src/Coach.Core/PngEncoder.cs" Link="PngEncoder.cs" /></ItemGroup>
+ <Target Name="CheckTml" BeforeTargets="ResolveReferences" Condition="!Exists('$(TModLoaderPath)/tModLoader.dll')"><Error Text="Set TModLoaderPath to a supported stable tModLoader directory." /></Target>
+</Project>

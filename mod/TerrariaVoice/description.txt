@@ -1,0 +1,1 @@
+A voice survival coach who discovers a strange Earth alongside you. Single-player, screen plus selected HUD readings, continuous voice, and separate persistent coach memory for every world. Requires the local Terraria Voice Hugging Face companion and a Hugging Face token with Inference Providers permission. Inference uses your Hugging Face credits.

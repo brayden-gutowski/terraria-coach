@@ -1,0 +1,18 @@
+**/bin/
+**/obj/
+.superpowers/
+.dev/
+data/
+*.user
+*.tmod
+pairing-token.txt
+
+# Private documentation and local files
+README*
+readme*
+artifacts/
+.env
+.env.*
+*.log
+*.pem
+*.key
