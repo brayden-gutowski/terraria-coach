@@ -69,6 +69,36 @@ static class HfChecks
    try{await new HuggingFaceCoach(s,new HuggingFace(new HttpClient(wire),"hf_test")).TurnAsync(k,"new","What is this slime?",false,localVoice:true);}
    catch(VoiceConnectionException e){Assert(e.Code=="hf_repeated_reply"&&!e.Retryable,"no automatic retry loop");Assert(wire.Urls.Count==2,"only one corrective attempt");Assert(s.GetDialogue().Count(d=>d=="Coach: "+old)==1,"duplicate never persisted");return;}throw new Exception("Expected repeat rejection");
   }));
+
+  cases.Add(("hf","HfDeliveryMetadataIsOptionalAndBounded",()=>{
+   var tangent=HuggingFace.ParseDecision("{\"speech\":\"Here is my strange story.\",\"delivery\":\"tangent\",\"interruption\":\"Hold on, let me finish.\",\"memory\":[]}");
+   using var json=JsonDocument.Parse(JsonSerializer.Serialize(tangent,Protocol.Json));Assert(json.RootElement.TryGetProperty("delivery",out var delivery)&&delivery.GetString()=="tangent","preserve delivery for playback");
+   Assert(json.RootElement.GetProperty("interruption").GetString()=="Hold on, let me finish.","preserve bounded interruption aside");
+   var fallback=HuggingFace.ParseDecision("{\"speech\":\"Hi\",\"delivery\":17,\"interruption\":[]}");
+   using var bad=JsonDocument.Parse(JsonSerializer.Serialize(fallback,Protocol.Json));Assert(bad.RootElement.GetProperty("delivery").GetString()=="normal","bad optional style cannot discard valid speech");return Task.CompletedTask;
+  }));
+  cases.Add(("hf","HfTemporalImagesStayInSameActiveWorld",async()=>{
+   var s=new CoachSession(new WorldStore(Path.GetFullPath(".dev/checks/"+Guid.NewGuid().ToString("N"))));var k=await s.EnterAsync(Guid.NewGuid());var wire=new Wire();var coach=new HuggingFaceCoach(s,new HuggingFace(new HttpClient(wire),"hf_test"));
+   Observation Frame(long n,bool focused,string image)=>new(k,n,DateTimeOffset.UtcNow,focused,true,100,100,false,800,600,image,[]);
+   s.Observe(Frame(1,true,"AA=="));await coach.TurnAsync(k,"scene1","look",false,localVoice:true);
+   s.Observe(Frame(2,true,"BB=="));await coach.TurnAsync(k,"scene2","how fast was that?",false,localVoice:true);
+   Assert(wire.Bodies[1].Contains("data:image/png;base64,AA==")&&wire.Bodies[1].Contains("data:image/png;base64,BB=="),"before and after visible to coach");
+   s.Observe(Frame(3,false,"BB=="));s.Observe(Frame(4,true,"CC=="));await coach.TurnAsync(k,"scene3","hi",false,localVoice:true);
+   Assert(!wire.Bodies[2].Contains("data:image/png;base64,BB=="),"focus boundary clears previous image");
+   k=await s.EnterAsync(Guid.NewGuid());s.Observe(Frame(1,true,"DD=="));await coach.TurnAsync(k,"scene4","hi",false,localVoice:true);
+   Assert(!wire.Bodies[3].Contains("data:image/png;base64,CC=="),"world boundary clears previous image");
+  }));
+
+  cases.Add(("hf","HfTangentsRespectWarmupCooldownAndHealth",async()=>{
+   var s=new CoachSession(new WorldStore(Path.GetFullPath(".dev/checks/"+Guid.NewGuid().ToString("N"))));var k=await s.EnterAsync(Guid.NewGuid());
+   var wire=new Wire{ChatReply="{\"speech\":\"I have a weird theory.\",\"delivery\":\"tangent\",\"interruption\":\"Hold on.\",\"memory\":[]}"};
+   var clock=new TestClock();var coach=new HuggingFaceCoach(s,new HuggingFace(new HttpClient(wire),"hf_test"),clock);long sequence=0;
+   async Task<TurnResult> Turn(int health=100){s.Observe(new(k,++sequence,DateTimeOffset.UtcNow,true,true,health,100,false,800,600,"AA==",[]));return await coach.TurnAsync(k,"cadence"+sequence,"",true,localVoice:true);}
+   Assert((await Turn()).Delivery=="normal","no immediate tangent");clock.Now=clock.Now.AddSeconds(91);
+   Assert((await Turn()).Delivery=="tangent","calm tangent opportunity after warmup");
+   Assert((await Turn()).Delivery=="normal","no back-to-back tangents");clock.Now=clock.Now.AddMinutes(4);
+   Assert((await Turn(20)).Delivery=="normal","critical health cannot hold floor for tangent");
+  }));
   cases.Add(("hf","HfCreditErrorIsSafeAndPermanent",async()=>{
    var hf=new HuggingFace(new HttpClient(new Wire{Status=402}),"hf_private_test");
    try{await hf.SpeakAsync("Hello");}catch(VoiceConnectionException e){Assert(!e.Retryable&&e.Message.Contains("Hugging Face")&&!e.Message.Contains("hf_private_test"),"safe quota explanation");return;}throw new Exception("Missing credit rejection");
@@ -90,6 +120,7 @@ static class HfChecks
    await s.EnterAsync(Guid.NewGuid());Assert(s.GetObservation() is null,"image not carried to new world");
   }));
  }
+ class TestClock : TimeProvider{public DateTimeOffset Now=DateTimeOffset.UtcNow;public override DateTimeOffset GetUtcNow()=>Now;}
  class Wire : HttpMessageHandler
  {
   public List<Uri> Urls=[];public List<string> Auth=[],Bodies=[];public int Status=200;public bool HoldChat;public string? ChatReply;
