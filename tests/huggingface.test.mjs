@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {VoiceClient} from '../src/Coach.Host/wwwroot/voice.js';
 import {SpeechSegmenter,encodeWav} from '../src/Coach.Host/wwwroot/speech.js';
+function voiced(rate=1000,length=50,amplitude=.2){return Float32Array.from({length},(_,i)=>amplitude*Math.sin(2*Math.PI*125*i/rate));}
 const session={worldId:'A',generation:'one'};
 function fixture(post=async()=>({speech:'',audioBase64:null})){
  const statuses=[],transcripts=[],calls=[];const track={enabled:true,stop(){this.enabled=false}};
@@ -11,8 +12,8 @@ function fixture(post=async()=>({speech:'',audioBase64:null})){
 }
 test('WavIsValidPcm16',()=>{const wav=encodeWav(new Float32Array([0,1,-1]),16000);const view=new DataView(wav.buffer);assert.equal(new TextDecoder().decode(wav.slice(0,4)),'RIFF');assert.equal(view.getUint32(24,true),16000);assert.equal(view.getUint32(40,true),6);assert.equal(view.getInt16(46,true),32767);assert.equal(view.getInt16(48,true),-32768);});
 test('SilenceNeverTriggersSpeechUpload',()=>{const vad=new SpeechSegmenter(1000);let triggered=false;for(let i=0;i<100;i++){const event=vad.push(new Float32Array(50));triggered ||= event.started||!!event.clip;}assert.equal(triggered,false);});
-test('SpeechHasPrefixAndEndsAfterSilence',()=>{const vad=new SpeechSegmenter(1000);let starts=0,clip;for(let i=0;i<6;i++){const e=vad.push(new Float32Array(50).fill(.2));if(e.started)starts++;}for(let i=0;i<15;i++){const e=vad.push(new Float32Array(50));if(e.clip)clip=e.clip;}assert.equal(starts,1);assert.ok(clip?.length>=750);assert.equal(vad.speaking,false);});
-test('LongSpeechIsBoundedWithoutRetriggering',()=>{const vad=new SpeechSegmenter(1000);let starts=0,partials=0;for(let i=0;i<450;i++){const e=vad.push(new Float32Array(50).fill(.2));if(e.started)starts++;if(e.partial){partials++;assert.ok(e.clip.length<=20100);}}assert.equal(starts,1);assert.equal(partials,1);assert.equal(vad.speaking,true);});
+test('SpeechHasPrefixAndEndsAfterSilence',()=>{const vad=new SpeechSegmenter(1000);let starts=0,clip;for(let i=0;i<6;i++){const e=vad.push(voiced());if(e.started)starts++;}for(let i=0;i<15;i++){const e=vad.push(new Float32Array(50));if(e.clip)clip=e.clip;}assert.equal(starts,1);assert.ok(clip?.length>=750);assert.equal(vad.speaking,false);});
+test('LongSpeechIsBoundedWithoutRetriggering',()=>{const vad=new SpeechSegmenter(1000);let starts=0,partials=0;for(let i=0;i<450;i++){const e=vad.push(voiced());if(e.started)starts++;if(e.partial){partials++;assert.ok(e.clip.length<=20100);}}assert.equal(starts,1);assert.equal(partials,1);assert.equal(vad.speaking,true);});
 test('ContinuousMicDuringCoachPlayback',async()=>{const f=fixture(async()=>({speech:'Watch out!',audioBase64:'AA==',mime:'audio/mpeg'}));f.client.play=async()=>{f.client.speaking=true;};await f.client.requestTurn('hello',false);assert.equal(f.track.enabled,true);assert.equal(f.transcripts.at(-1),'Coach: Watch out!');});
 test('NewSpeechAbortsPendingRequest',async()=>{let release;const f=fixture(()=>new Promise(r=>release=r));const request=f.client.requestTurn('old',false);const signal=f.calls[0][3];f.client.interrupt();assert.equal(signal.aborted,true);release({speech:'stale',audioBase64:'AA=='});await request;assert.equal(f.transcripts.length,0);});
 test('WorldSwitchRejectsLateReply',async()=>{let release;const f=fixture(()=>new Promise(r=>release=r));const request=f.client.requestTurn('old',false);f.client.update({session:{worldId:'B',generation:'two'},active:true,muted:false});release({speech:'world A reply',audioBase64:'AA=='});await request;assert.equal(f.transcripts.length,0);});
@@ -40,7 +41,7 @@ test('SecondSentencePreservesPendingFirstTranscription',async()=>{
   if(path==='/api/transcribe'){asrCount++;if(asrCount===1){firstSignal=signal;await new Promise(r=>release=r);return{text:'First sentence.'};}return{text:'Second sentence.'};}return{speech:'',audioBase64:null};
  });
  f.client.context={sampleRate:1000};f.client.segmenter=new SpeechSegmenter(1000);
- const sentence=()=>{for(let i=0;i<6;i++)f.client.ingest(new Float32Array(50).fill(.2));for(let i=0;i<14;i++)f.client.ingest(new Float32Array(50));};
+ const sentence=()=>{for(let i=0;i<6;i++)f.client.ingest(voiced());for(let i=0;i<14;i++)f.client.ingest(new Float32Array(50));};
  sentence();await new Promise(r=>setImmediate(r));sentence();const aborted=firstSignal.aborted;release();
  for(let i=0;i<10;i++)await new Promise(r=>setImmediate(r));
  assert.equal(aborted,false,'new sentence must not abort user ASR');
@@ -49,13 +50,13 @@ test('SecondSentencePreservesPendingFirstTranscription',async()=>{
 test('SpeechAndManualTurnsCannotBypassBackoff',async()=>{
  const f=fixture();f.client.retryAt=Date.now()+90000;f.client.context={sampleRate:1000};f.client.segmenter=new SpeechSegmenter(1000);
  await f.client.requestTurn('hello',false);
- for(let i=0;i<6;i++)f.client.ingest(new Float32Array(50).fill(.2));for(let i=0;i<14;i++)f.client.ingest(new Float32Array(50));
+ for(let i=0;i<6;i++)f.client.ingest(voiced());for(let i=0;i<14;i++)f.client.ingest(new Float32Array(50));
  await new Promise(r=>setImmediate(r));assert.equal(f.calls.filter(c=>['/api/turn','/api/transcribe'].includes(c[0])).length,0);
 });
 test('DisconnectReleasesVoiceOwnership',()=>{const f=fixture();f.client.disconnect();assert.ok(f.calls.some(c=>c[0]==='/api/release'));});
 test('NoSilenceOnlyUploadAfterLongSpeechSegment',()=>{
  const vad=new SpeechSegmenter(1000);let reachedPartial=false,tail=null;
- while(!reachedPartial)reachedPartial=vad.push(new Float32Array(50).fill(.2)).partial;
+ while(!reachedPartial)reachedPartial=vad.push(voiced()).partial;
  for(let i=0;i<14;i++){const e=vad.push(new Float32Array(50));if(e.clip)tail=e.clip;}
  assert.equal(tail,null);assert.equal(vad.speaking,false);
 });
@@ -71,4 +72,23 @@ test('LocalVoiceSkipsCloudAudioAndIsInterruptible',async()=>{
 test('UnavailableLocalVoiceUsesCloudFallback',async()=>{
  globalThis.speechSynthesis={getVoices:()=>[{localService:false,lang:'en-US'}]};
  try{const f=fixture();await f.client.requestTurn('hello',false);assert.equal(f.calls[0][1].localVoice,false);}finally{delete globalThis.speechSynthesis;}
+});
+
+test('LoudBreathingNoiseNeverBecomesAnUtterance',()=>{
+ const vad=new SpeechSegmenter(16000,.04);let seed=73,clips=0,starts=0;
+ for(let frame=0;frame<24;frame++){
+  const noise=Float32Array.from({length:1024},()=>{seed=(1664525*seed+1013904223)>>>0;return(seed/4294967296-.5)*.36;});
+  const e=vad.push(noise);starts+=Number(e.started);clips+=Number(!!e.clip);
+ }
+ for(let i=0;i<12;i++){const e=vad.push(new Float32Array(1024));clips+=Number(!!e.clip);}
+ assert.equal(starts,0);assert.equal(clips,0);
+});
+test('HigherThresholdRejectsQuietVoiceButStillAcceptsClearSpeech',()=>{
+ const vad=new SpeechSegmenter(16000,.08);let quiet=false,loud=false;
+ for(let i=0;i<8;i++)quiet ||= vad.push(voiced(16000,1024,.05)).started;
+ for(let i=0;i<8;i++)loud ||= vad.push(voiced(16000,1024,.25)).started;
+ assert.equal(quiet,false);assert.equal(loud,true);
+});
+test('MicrophoneDoesNotAmplifyQuietBreathsAutomatically',async()=>{
+ const f=fixture();let settings;f.client.getMedia=async options=>{settings=options;return{getAudioTracks:()=>[f.track]};};await f.client.acquireMicrophone();assert.equal(settings.audio.autoGainControl,false);
 });

@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);
 let state=null,desired=false,initial=true,lastGeneration=null;
 async function post(path,value,text=false,signal){const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value),signal});if(!response.ok){let detail={};try{detail=await response.json();}catch{}const error=new Error(detail.error||'Companion request failed ('+response.status+')');error.code=detail.code;error.retryable=detail.retryable;error.retryAfterSeconds=detail.retryAfterSeconds;throw error;}return text?response.text():response.status===204?{}:response.headers.get('content-type')?.includes('json')?response.json():{};}
 function line(text){const p=document.createElement('p');p.textContent=text;$('transcript').append(p);while($('transcript').children.length>60)$('transcript').firstChild.remove();$('transcript').scrollTop=$('transcript').scrollHeight;}
-const voice=new VoiceClient({post,onStatus:s=>$('status').textContent=s,onTranscript:line,onTiming:r=>$('timing').textContent=r.inferenceMs?`Last reply: recognition ${((r.recognitionMs||0)/1000).toFixed(1)}s · model ${(r.inferenceMs/1000).toFixed(1)}s · voice ${r.localVoice?'local':(r.voiceMs/1000).toFixed(1)+'s'}`:''});
+const voice=new VoiceClient({post,onStatus:s=>$('status').textContent=s,onTranscript:line,onLevel:(level,threshold)=>{$('mic-level').value=level;$('mic-reading').textContent=`Input ${level.toFixed(3)} · threshold ${threshold.toFixed(3)}`;},onTiming:r=>$('timing').textContent=r.inferenceMs?`Last reply: recognition ${((r.recognitionMs||0)/1000).toFixed(1)}s · model ${(r.inferenceMs/1000).toFixed(1)}s · voice ${r.localVoice?'local':(r.voiceMs/1000).toFixed(1)+'s'}`:''});
 function update(next,frame){
  state=next;$('mode').textContent=next.simulation?'OFFLINE DEMO':next.active?'WORLD ACTIVE':'PAUSED';
  $('world').textContent=next.session?'World '+next.session.worldId.slice(0,8)+' · '+(next.active?'watching your back':'waiting for active play'):'Waiting for a single-player world.';
@@ -23,8 +23,8 @@ $('reset').onclick=async()=>{if(state?.session&&confirm('Start this world’s co
 for(const id of ['input','output'])$(id).onchange=()=>{localStorage.setItem('coach-'+id,$(id).value);if(desired){voice.disconnect();$('status').textContent='Device changed. Select Connect voice to resume.';}};
 $('cooldown').onchange=()=>{voice.cooldown=Number($('cooldown').value);localStorage.setItem('coach-cooldown',$('cooldown').value);};
 $('cooldown').value=localStorage.getItem('coach-cooldown')||'8000';voice.cooldown=Number($('cooldown').value);
-$('sensitivity').value=localStorage.getItem('coach-sensitivity')||'0.02';voice.sensitivity=Number($('sensitivity').value);
-$('sensitivity').onchange=()=>{voice.sensitivity=Number($('sensitivity').value);localStorage.setItem('coach-sensitivity',$('sensitivity').value);};
+$('sensitivity').value=localStorage.getItem('coach-speech-threshold-v2')||'0.04';voice.sensitivity=Number($('sensitivity').value);
+$('sensitivity').onchange=()=>{voice.sensitivity=Number($('sensitivity').value);localStorage.setItem('coach-speech-threshold-v2',$('sensitivity').value);};
 $('voice-mode').value=localStorage.getItem('coach-voice-mode')||'local';voice.voiceMode=$('voice-mode').value;
 $('voice-mode').onchange=()=>{voice.interrupt();voice.voiceMode=$('voice-mode').value;localStorage.setItem('coach-voice-mode',voice.voiceMode);};
 try{update(await (await fetch('/api/state')).json());await devices();}catch(e){$('status').textContent='Setup error: '+e.message;}

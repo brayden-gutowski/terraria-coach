@@ -4,18 +4,18 @@ const uid=()=>globalThis.crypto.randomUUID();
 function base64(bytes){let text='';for(let at=0;at<bytes.length;at+=32768)text+=String.fromCharCode(...bytes.subarray(at,at+32768));return btoa(text);}
 
 export class VoiceClient {
- constructor({post,onStatus,onTranscript,onTiming=()=>{}}){
-  this.onTiming=onTiming;this.voiceMode="local";this.post=post;this.onStatus=onStatus;this.onTranscript=onTranscript;this.getMedia=options=>navigator.mediaDevices.getUserMedia(options);
+ constructor({post,onStatus,onTranscript,onTiming=()=>{},onLevel=()=>{}}){
+  this.onLevel=onLevel;this.onTiming=onTiming;this.voiceMode="local";this.post=post;this.onStatus=onStatus;this.onTranscript=onTranscript;this.getMedia=options=>navigator.mediaDevices.getUserMedia(options);
   this.clientId=uid();this.leaseId=uid();this.session=null;this.wanted=false;this.active=false;this.muted=false;this.claimed=false;this.claiming=false;
   this.stream=null;this.context=null;this.audio=null;this.node=null;this.source=null;this.segmenter=null;this.url=null;
-  this.epoch=0;this.revision=0;this.setupRevision=0;this.abort=null;this.busy=false;this.userSpeaking=false;this.speaking=false;this.cooldown=8000;this.sensitivity=.02;
+  this.epoch=0;this.revision=0;this.setupRevision=0;this.abort=null;this.busy=false;this.userSpeaking=false;this.speaking=false;this.cooldown=8000;this.sensitivity=.04;
   this.lastPacket=Date.now();this.lastReview=0;this.retryAt=0;this.failures=0;this.audioQueue=[];this.processingAudio=false;this.audioAbort=null;this.pendingText='';
  }
  allowed(){return !!(this.wanted&&this.active&&!this.muted&&this.session);}
  enableTracks(){for(const t of this.stream?.getAudioTracks()??[])t.enabled=this.allowed();}
  async acquireMicrophone(){
   try{
-   const audio={echoCancellation:true,noiseSuppression:true,autoGainControl:true};if(this.devices?.input)audio.deviceId={exact:this.devices.input};
+   const audio={echoCancellation:true,noiseSuppression:true,autoGainControl:false};if(this.devices?.input)audio.deviceId={exact:this.devices.input};
    const stream=await this.getMedia({audio});for(const t of stream.getAudioTracks())t.onended=()=>{this.disconnect();this.onStatus('Microphone disconnected. Choose a working device and reconnect.');};return stream;
   }catch(e){this.onStatus('Microphone unavailable: '+e.message);throw e;}
  }
@@ -56,7 +56,7 @@ export class VoiceClient {
  }
  ingest(samples){
   if(!this.allowed()||!this.claimed||!this.segmenter){this.segmenter?.reset();return;}
-  this.segmenter.threshold=this.sensitivity;const event=this.segmenter.push(samples);
+  this.segmenter.threshold=this.sensitivity;const event=this.segmenter.push(samples);this.onLevel(this.segmenter.rms,this.segmenter.effectiveThreshold);
   if(event.started){this.interrupt();this.userSpeaking=true;this.onStatus('Hearing you…');}
   if(event.clip){
    this.userSpeaking=this.segmenter.speaking;
