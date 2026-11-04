@@ -120,6 +120,30 @@ static class HfChecks
    s.Observe(new(k,2,DateTimeOffset.UtcNow,true,true,100,100,false,800,600,"BB==",[]));await coach.TurnAsync(k,"after","look now",false,localVoice:true);
    Assert(!wire.Bodies[1].Contains("data:image/png;base64,AA=="),"explicit interruption invalidates before image");
   }));
+
+  cases.Add(("hf","HfScreenEvidenceHasSnapshotTimesAndGaps",async()=>{
+   var k=new SessionKey(Guid.NewGuid(),Guid.NewGuid());var captured=DateTimeOffset.UtcNow.AddSeconds(-2);var current=new Observation(k,2,captured,true,true,90,100,false,800,600,"BB==",[]);var before=current with{Sequence=1,CapturedAt=captured.AddSeconds(-3),ImageBase64="AA=="};
+   var wire=new Wire();await new HuggingFace(new HttpClient(wire),"hf_test").DecideAsync("persona",current,"What happened?",false,previousFrame:before);
+   using var body=JsonDocument.Parse(wire.Bodies.Single());var content=body.RootElement.GetProperty("messages")[1].GetProperty("content");
+   var payload=content.EnumerateArray().Where(v=>v.GetProperty("type").GetString()=="text").Select(v=>v.GetProperty("text").GetString()!).FirstOrDefault(t=>t.StartsWith("{"));
+   Assert(payload is not null,"explicit machine-readable screenshot provenance");using var data=JsonDocument.Parse(payload!);var visual=data.RootElement.GetProperty("visualEvidence");
+   Assert(!visual.GetProperty("continuousVideo").GetBoolean()&&visual.GetProperty("snapshotCount").GetInt32()==2,"do not imply continuous video");
+   Assert(visual.GetProperty("currentCapturedAt").GetDateTimeOffset()==captured&&visual.GetProperty("gapSeconds").GetDouble()==3,"actual capture timestamps and gap");Assert(visual.GetProperty("currentAgeSeconds").GetDouble()>=1,"snapshot is not described as instantaneous");
+  }));
+  cases.Add(("hf","HfStaleOrCrossWorldImagesAreOmitted",async()=>{
+   var k=new SessionKey(Guid.NewGuid(),Guid.NewGuid());var frame=new Observation(k,1,DateTimeOffset.UtcNow,true,true,100,100,false,800,600,"BB==",[]);var wire=new Wire();var hf=new HuggingFace(new HttpClient(wire),"hf_test");
+   await hf.DecideAsync("persona",frame with{CapturedAt=DateTimeOffset.UtcNow.AddMinutes(-2)},"what do you see",false);
+   Assert(!wire.Bodies[0].Contains("data:image/png"),"stale screenshot cannot masquerade as current");
+   await hf.DecideAsync("persona",frame,"what do you see",false,previousFrame:frame with{Session=new(Guid.NewGuid(),Guid.NewGuid()),CapturedAt=frame.CapturedAt.AddSeconds(-1),ImageBase64="AA=="});
+   Assert(!wire.Bodies[1].Contains("data:image/png;base64,AA=="),"other world's frame is not evidence");
+   await hf.DecideAsync("persona",null,"what do you see",false,previousFrame:frame);Assert(!wire.Bodies[2].Contains("data:image/png"),"prior image alone cannot provide a current scene");
+  }));
+  cases.Add(("hf","HfMissingImageCannotCreateVisualMemories",async()=>{
+   var s=new CoachSession(new WorldStore(Path.GetFullPath(".dev/checks/"+Guid.NewGuid().ToString("N"))));var k=await s.EnterAsync(Guid.NewGuid());s.Observe(new(k,1,DateTimeOffset.UtcNow,true,true,100,100,false,800,600,null,[]));
+   var wire=new Wire{ChatReply="{\"speech\":\"I would keep some distance.\",\"memory\":[{\"kind\":\"learned_fact\",\"text\":\"punched creature\",\"subject\":\"walker\",\"evidence\":\"observation\"},{\"kind\":\"encounter_start\",\"text\":\"saw walker\",\"subject\":\"walker\",\"evidence\":\"observation\",\"episodeId\":\"imagined\"},{\"kind\":\"learned_fact\",\"text\":\"player describes blue stars\",\"subject\":\"stars\",\"evidence\":\"player_report\"},{\"kind\":\"persona_update\",\"text\":\"Shared nickname: captain.\"}]}"};
+   await new HuggingFaceCoach(s,new HuggingFace(new HttpClient(wire),"hf_test")).TurnAsync(k,"blind","what should I do",false,localVoice:true);
+   Assert(!s.State!.Facts.Any(f=>f.Contains("punched"))&&s.State.Encounters.Count==0,"no invented visual memories without imagery");Assert(s.State.Facts.Any(f=>f.Contains("blue stars"))&&s.State.Persona.Contains("captain"),"player reports and relationship memory still work");
+  }));
   cases.Add(("hf","HfCreditErrorIsSafeAndPermanent",async()=>{
    var hf=new HuggingFace(new HttpClient(new Wire{Status=402}),"hf_private_test");
    try{await hf.SpeakAsync("Hello");}catch(VoiceConnectionException e){Assert(!e.Retryable&&e.Message.Contains("Hugging Face")&&!e.Message.Contains("hf_private_test"),"safe quota explanation");return;}throw new Exception("Missing credit rejection");

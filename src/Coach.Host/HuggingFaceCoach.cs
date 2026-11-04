@@ -56,7 +56,11 @@ public class HuggingFaceCoach(CoachSession session,HuggingFace hf,TimeProvider? 
    }
    var inferenceMs=timer.Elapsed.TotalMilliseconds;
    lock(sync){Validate();if(frame?.ImageBase64 is not null)previous=frame;}
-   int i=0;foreach(var update in decision.Memory){Validate();await session.ApplyAsync(new(key,id+":memory:"+(i++),update.Kind,update.Text,update.Subject,update.Evidence,update.EpisodeId),token);}
+   int i=0;foreach(var update in decision.Memory){
+    Validate();
+    if(!decision.HasVisualEvidence&&update.Evidence=="observation"&&(update.Kind=="learned_fact"||update.Kind.StartsWith("encounter_")))continue;
+    await session.ApplyAsync(new(key,id+":memory:"+(i++),update.Kind,update.Text,update.Subject,update.Evidence,update.EpisodeId),token);
+   }
    Validate();if(string.IsNullOrWhiteSpace(decision.Speech))return new("",null);
    timer.Restart();var audio=localVoice?null:await hf.SpeakAsync(decision.Speech,token);
    Validate();var voiceMs=timer.Elapsed.TotalMilliseconds;
