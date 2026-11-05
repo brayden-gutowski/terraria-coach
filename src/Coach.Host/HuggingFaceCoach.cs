@@ -6,7 +6,7 @@ public class HuggingFaceCoach(CoachSession session,HuggingFace hf,TimeProvider? 
  readonly object sync=new();CancellationTokenSource? current;
  readonly TimeProvider time=clock??TimeProvider.System;
  SessionKey? sceneOwner;long sceneVersion=-1;Observation? previous;
- DateTimeOffset? lastSpeech;int? lastSpokenHealth;bool lastSpokenDead;
+ DateTimeOffset? lastSpeech;DateTimeOffset lastConversation;int? lastSpokenHealth;bool lastSpokenDead;
  public void Interrupt(){lock(sync){current?.Cancel();current=null;previous=null;}}
  public static bool IsRepeatedSpeech(string speech,IEnumerable<string> dialogue)
  {
@@ -19,9 +19,10 @@ public class HuggingFaceCoach(CoachSession session,HuggingFace hf,TimeProvider? 
   var end=tokens[words-1].Index+tokens[words-1].Length;var prefix=text[..end];var sentence=prefix.LastIndexOfAny(['.','!','?']);
   return sentence>=prefix.Length/3?prefix[..(sentence+1)]:prefix+"…";
  }
- public async Task<TurnResult> TurnAsync(SessionKey key,string id,string text,bool proactive,CancellationToken ct=default,bool alreadyRecorded=false,bool localVoice=false)
+ public async Task<TurnResult> TurnAsync(SessionKey key,string id,string text,bool proactive,CancellationToken ct=default,bool alreadyRecorded=false,bool localVoice=false,double? idleSeconds=null)
  {
   Protocol.Key(key);Protocol.Text(id,100);Protocol.Text(text,8000);
+  if(idleSeconds is not null&&(!double.IsFinite(idleSeconds.Value)||idleSeconds<0||idleSeconds>86400))throw new ArgumentException("Invalid idle duration");
   var version=session.ActivityVersion;using var lifetime=CancellationTokenSource.CreateLinkedTokenSource(ct);var token=lifetime.Token;
   lock(sync){current?.Cancel();current=lifetime;}
   void Validate(){token.ThrowIfCancellationRequested();lock(sync){if(current!=lifetime||session.Current!=key||!session.Active||session.ActivityVersion!=version)throw new OperationCanceledException("World/activity changed");}}
@@ -33,11 +34,12 @@ public class HuggingFaceCoach(CoachSession session,HuggingFace hf,TimeProvider? 
    var now=time.GetUtcNow();Observation? before;bool allowChatter,allowWarning;
    lock(sync){
     Validate();
-    if(sceneOwner!=key){sceneOwner=key;previous=null;lastSpeech=null;lastSpokenHealth=null;lastSpokenDead=false;}
+    if(sceneOwner!=key){sceneOwner=key;previous=null;lastSpeech=null;lastConversation=now;lastSpokenHealth=null;lastSpokenDead=false;}
     if(sceneVersion!=version){sceneVersion=version;previous=null;}
+    if(!proactive&&!string.IsNullOrWhiteSpace(text))lastConversation=now;
     before=previous is not null&&frame?.ImageBase64 is not null&&previous.ImageBase64!=frame.ImageBase64&&frame.CapturedAt>=previous.CapturedAt&&frame.CapturedAt-previous.CapturedAt<=TimeSpan.FromSeconds(60)?previous:null;
     var quietSeconds=lastSpeech is null?double.PositiveInfinity:(now-lastSpeech.Value).TotalSeconds;
-    allowChatter=quietSeconds>=60;
+    allowChatter=now-lastConversation>=TimeSpan.FromSeconds(45)&&(idleSeconds is null||idleSeconds>=45);
     var worse=frame is not null&&((frame.Dead&&!lastSpokenDead)||(frame.Health<=frame.MaxHealth*.3&&(lastSpokenHealth is null||lastSpokenHealth.Value-frame.Health>=Math.Max(1,frame.MaxHealth*.1))));
     allowWarning=quietSeconds>=15||worse;
    }
@@ -65,7 +67,7 @@ public class HuggingFaceCoach(CoachSession session,HuggingFace hf,TimeProvider? 
    timer.Restart();var audio=localVoice?null:await hf.SpeakAsync(decision.Speech,token);
    Validate();var voiceMs=timer.Elapsed.TotalMilliseconds;
    await session.ApplyAsync(new(key,id+":coach","transcript","Coach: "+decision.Speech),token);Validate();
-   lock(sync){Validate();lastSpeech=time.GetUtcNow();lastSpokenHealth=frame?.Health;lastSpokenDead=frame?.Dead??false;}
+   lock(sync){Validate();lastSpeech=time.GetUtcNow();lastConversation=lastSpeech.Value;lastSpokenHealth=frame?.Health;lastSpokenDead=frame?.Dead??false;}
    return new(decision.Speech,audio is null?null:Convert.ToBase64String(audio),LocalVoice:localVoice,InferenceMs:inferenceMs,VoiceMs:voiceMs,Delivery:decision.Delivery);
   }finally{lock(sync){if(current==lifetime)current=null;}}
  }

@@ -92,7 +92,7 @@ app.MapPost("/api/transcribe",async(HttpContext ctx)=>{
 });
 app.MapPost("/api/turn",async(HttpContext ctx)=>{
  var v=await Read<TurnRequest>(ctx);var denied=Claim(v.Session,v.ClientId,v.LeaseId);if(denied is not null)return denied;Protocol.Text(v.Text,8000);
- try{return Results.Json(await coach.TurnAsync(v.Session,v.Id,v.Text,v.Proactive,ctx.RequestAborted,v.Transcribed,v.LocalVoice),Protocol.Json);}
+ try{return Results.Json(await coach.TurnAsync(v.Session,v.Id,v.Text,v.Proactive,ctx.RequestAborted,v.Transcribed,v.LocalVoice,v.IdleSeconds),Protocol.Json);}
  catch(OperationCanceledException)when(!ctx.RequestAborted.IsCancellationRequested){return Results.Conflict(new{error="Coaching turn interrupted or world/activity changed."});}
 });
 app.MapGet("/api/stream",async(HttpContext ctx)=>{
@@ -119,4 +119,4 @@ record ControlRequest(SessionKey Session,bool Muted);
 record ResetRequest(SessionKey Session,bool Confirmed);
 record ClientRequest(SessionKey Session,string ClientId,string LeaseId);
 record SpeechRequest(SessionKey Session,string ClientId,string AudioBase64,string Id,string LeaseId);
-record TurnRequest(SessionKey Session,string ClientId,string Id,string Text,bool Proactive,string LeaseId,bool Transcribed=false,bool LocalVoice=false);
+record TurnRequest(SessionKey Session,string ClientId,string Id,string Text,bool Proactive,string LeaseId,bool Transcribed=false,bool LocalVoice=false,double? IdleSeconds=null);

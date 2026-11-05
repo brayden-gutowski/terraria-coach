@@ -98,25 +98,18 @@ test('VoicedOnsetDoesNotCutOffCoachPlayback',()=>{
  for(let i=0;i<6;i++)f.client.ingest(voiced());
  assert.equal(f.client.speaking,true);assert.equal(f.calls.some(c=>c[0]==='/api/interrupt'),false);assert.equal(f.track.enabled,true);
 });
-test('TangentHecklesOnceThenContinuesAndAnswersQueuedQuestion',async()=>{
+
+test('PlayerQuestionOverridesNativeSpeechWithoutContinuingOldStory',async()=>{
  const spoken=[];let cancels=0;globalThis.speechSynthesis={getVoices:()=>[{localService:true,lang:'en-US'}],speak:u=>spoken.push(u),cancel:()=>cancels++};globalThis.SpeechSynthesisUtterance=class{constructor(text){this.text=text}};
- try{
-  let turns=0;const f=fixture(async path=>path==='/api/turn'&&++turns===1?{speech:'First part of the story. Second part of the story.',delivery:'tangent',interruption:'Pipe down, I am talking.',localVoice:true}:{speech:''});
-  await f.client.requestTurn('',true);f.client.pendingText='What is that creature?';await f.client.respondPending();
-  assert.equal(turns,1,'question waits for story');assert.equal(cancels,0);
-  assert.equal(spoken[0].text,'First part of the story.');spoken[0].onend();assert.equal(spoken[1].text,'Pipe down, I am talking.');
-  await f.client.respondPending();spoken[1].onend();assert.equal(spoken[2].text,'Second part of the story.');spoken[2].onend();
-  for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r));
-  assert.equal(turns,2);assert.equal(f.calls.filter(c=>c[0]==='/api/turn')[1][1].text,'What is that creature?');assert.equal(spoken.length,3);
+ try{let turns=0;const f=fixture(async path=>path==='/api/turn'&&++turns===1?{speech:'Old scene remark. Unwanted continuation.',delivery:'tangent',localVoice:true}:{speech:'Keep some distance.',localVoice:true});
+ await f.client.requestTurn('',true);const old=spoken[0];f.client.pendingText='Should I fight it?';await f.client.respondPending();
+ assert.equal(turns,2,'question gets a turn now');assert.equal(cancels,1);assert.equal(spoken.at(-1).text,'Keep some distance.');old.onend();assert.equal(spoken.length,2,'old callback cannot restart old speech');assert.equal(f.track.enabled,true);
  }finally{delete globalThis.speechSynthesis;delete globalThis.SpeechSynthesisUtterance;}
 });
-test('RemoteTangentPausesForHeckleAndResumesSameAudio',async()=>{
- const audios=[];globalThis.document={createElement:()=>{const a={currentTime:12,playCount:0,pauseCount:0,async play(){this.playCount++},pause(){this.pauseCount++},removeAttribute(){}};audios.push(a);return a;}};
- try{const f=fixture();f.client.audio=document.createElement('audio');await f.client.play('AA==','audio/mpeg','tangent','Let me finish.','AQ==');
- f.client.pendingText='Hey';await f.client.respondPending();assert.equal(audios.length,2);assert.equal(audios[0].pauseCount,2);assert.equal(audios[1].playCount,1);
- audios[1].onended();await new Promise(r=>setImmediate(r));assert.equal(audios[0].currentTime,12);assert.equal(audios[0].playCount,2);assert.equal(f.client.pendingText,'Hey');
- const late=audios[1].onended;f.client.setActivity(false,false);late?.();assert.equal(f.client.speaking,false);
- }finally{delete globalThis.document;}
+test('PlayerQuestionOverridesRemoteAudioWithoutHeckleOrResume',async()=>{
+ const f=fixture();f.client.audio={async play(){},pause(){this.paused=true},removeAttribute(){}};
+ await f.client.play('AA==','audio/mpeg','tangent');const old=f.client.audio.onended;f.client.pendingText='What should I do?';await f.client.respondPending();
+ assert.equal(f.client.audio.paused,true);assert.equal(f.calls.filter(c=>c[0]==='/api/turn').length,1);assert.equal(f.calls.find(c=>c[0]==='/api/turn')[1].text,'What should I do?');old();assert.equal(f.client.speaking,false);assert.equal(f.client.asideAudio,undefined);
 });
 test('FocusLossCancelsNativeTangentContinuation',async()=>{
  const spoken=[];let cancels=0;globalThis.speechSynthesis={getVoices:()=>[{localService:true,lang:'en-US'}],speak:u=>spoken.push(u),cancel:()=>cancels++};globalThis.SpeechSynthesisUtterance=class{constructor(text){this.text=text}};
@@ -133,4 +126,13 @@ test('ShortClearWordCanStillBeRecognized',()=>{
  for(let i=0;i<3;i++)vad.push(voiced(16000,800,.2));
  for(let i=0;i<12;i++){const e=vad.push(new Float32Array(800));if(e.clip)clip=e.clip;}
  assert.ok(clip,'150ms voiced word must survive breath filtering');
+});
+
+test('FastVoicePrefersMarkAndHonorsInstalledSelection',()=>{
+ const voices=[{name:'Microsoft Zira',voiceURI:'zira',localService:true,lang:'en-US'},{name:'Microsoft David',voiceURI:'david',localService:true,lang:'en-US'},{name:'Microsoft Mark',voiceURI:'mark',localService:true,lang:'en-US'},{name:'Remote voice',voiceURI:'remote',localService:false,lang:'en-US'}];
+ globalThis.speechSynthesis={getVoices:()=>voices};try{const f=fixture();assert.equal(f.client.localVoice().voiceURI,'mark');f.client.localVoiceUri='david';assert.equal(f.client.localVoice().voiceURI,'david');f.client.localVoiceUri='remote';assert.equal(f.client.localVoice().voiceURI,'mark');}finally{delete globalThis.speechSynthesis;}
+});
+test('LocalPreviewNeedsNoMicrophoneAndStopsOnMute',()=>{
+ let spoken,cancels=0;globalThis.speechSynthesis={getVoices:()=>[{name:'Microsoft Mark',localService:true,lang:'en-US'}],speak:u=>spoken=u,cancel:()=>cancels++};globalThis.SpeechSynthesisUtterance=class{constructor(text){this.text=text}};
+ try{const f=fixture();f.client.disconnect();f.calls.length=0;f.client.previewVoice();assert.ok(spoken);assert.equal(f.calls.length,0,'preview makes no API calls');assert.ok(spoken.pitch<=1&&spoken.volume<1,'calmer voice profile');f.client.setActivity(false,true);assert.ok(cancels>=1);const old=spoken;old.onend();assert.equal(f.client.previewUtterance,null);}finally{delete globalThis.speechSynthesis;delete globalThis.SpeechSynthesisUtterance;}
 });

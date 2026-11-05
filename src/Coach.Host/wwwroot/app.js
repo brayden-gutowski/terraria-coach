@@ -26,7 +26,18 @@ $('cooldown').value=localStorage.getItem('coach-cooldown')||'8000';voice.cooldow
 $('sensitivity').value=localStorage.getItem('coach-speech-threshold-v2')||'0.04';voice.sensitivity=Number($('sensitivity').value);
 $('sensitivity').onchange=()=>{voice.sensitivity=Number($('sensitivity').value);localStorage.setItem('coach-speech-threshold-v2',$('sensitivity').value);};
 $('voice-mode').value=localStorage.getItem('coach-voice-mode')||'local';voice.voiceMode=$('voice-mode').value;
-$('voice-mode').onchange=()=>{voice.interrupt();voice.voiceMode=$('voice-mode').value;localStorage.setItem('coach-voice-mode',voice.voiceMode);};
+$('voice-mode').onchange=()=>{voice.interrupt();voice.voiceMode=$('voice-mode').value;localStorage.setItem('coach-voice-mode',voice.voiceMode);localVoices();};
+voice.localVoiceUri=localStorage.getItem('coach-local-voice')||'';
+function localVoices(){
+ const voices=voice.localVoices();$('local-voice').replaceChildren(new Option('Automatic · Mark when available',''));
+ for(const v of voices)$('local-voice').append(new Option(v.name,v.voiceURI));
+ $('local-voice').value=voices.some(v=>v.voiceURI===voice.localVoiceUri)?voice.localVoiceUri:'';
+ $('local-voice').disabled=voice.voiceMode!=='local'||!voices.length;$('preview-voice').disabled=voice.voiceMode!=='local'||!voices.length;
+ $('voice-choice').textContent=voice.voiceMode==='local'?(voice.localVoice()?'Selected: '+voice.localVoice().name:'Loading installed English voices…'):'Neural voice uses Hugging Face; local voice selection applies in Fast mode.';
+}
+$('local-voice').onchange=()=>{voice.interrupt();voice.localVoiceUri=$('local-voice').value;localStorage.setItem('coach-local-voice',voice.localVoiceUri);localVoices();};
+$('preview-voice').onclick=()=>{try{voice.previewVoice();}catch(e){$('status').textContent=e.message;}};
+globalThis.speechSynthesis?.addEventListener('voiceschanged',localVoices);localVoices();
 try{update(await (await fetch('/api/state')).json());await devices();}catch(e){$('status').textContent='Setup error: '+e.message;}
 const events=new EventSource('/api/stream?client='+voice.clientId);
 events.onmessage=e=>{const packet=JSON.parse(e.data);update(packet.state,packet.frame);};

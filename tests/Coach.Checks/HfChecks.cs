@@ -93,9 +93,9 @@ static class HfChecks
   cases.Add(("hf","HfUnsolicitedSpeechLeavesQuietAcrossFocusChanges",async()=>{
    var s=new CoachSession(new WorldStore(Path.GetFullPath(".dev/checks/"+Guid.NewGuid().ToString("N"))));var k=await s.EnterAsync(Guid.NewGuid());var clock=new TestClock();var wire=new Wire();var coach=new HuggingFaceCoach(s,new HuggingFace(new HttpClient(wire),"hf_test"),clock);long n=0;
    async Task<TurnResult> Turn(bool proactive=true){s.Observe(new(k,++n,DateTimeOffset.UtcNow,true,true,100,100,false,800,600,"AA==",[]));return await coach.TurnAsync(k,"quiet"+n,proactive?"":"hello",proactive,localVoice:true);}
-   Assert((await Turn()).Speech!="","first useful observation allowed");clock.Now=clock.Now.AddSeconds(8);Assert((await Turn()).Speech=="","do not talk every observation");
+   Assert((await Turn()).Speech=="","start with quiet rather than an opening monologue");clock.Now=clock.Now.AddSeconds(46);Assert((await Turn()).Speech!="","brief scene comment after45sec quiet");clock.Now=clock.Now.AddSeconds(8);Assert((await Turn()).Speech=="","do not talk every observation");
    s.Observe(new(k,++n,DateTimeOffset.UtcNow,false,true,100,100,false,800,600,null,[]));clock.Now=clock.Now.AddSeconds(8);Assert((await Turn()).Speech=="","focus changes do not reset quiet interval");
-   Assert((await Turn(false)).Speech!="","answer direct question during quiet interval");clock.Now=clock.Now.AddSeconds(61);Assert((await Turn()).Speech!="","ordinary comments can resume after a minute");
+   Assert((await Turn(false)).Speech!="","answer direct question during quiet interval");clock.Now=clock.Now.AddSeconds(46);Assert((await Turn()).Speech!="","ordinary comments can resume after45sec");
   }));
   cases.Add(("hf","HfDangerWarningsAreBriefAndRateLimited",async()=>{
    var s=new CoachSession(new WorldStore(Path.GetFullPath(".dev/checks/"+Guid.NewGuid().ToString("N"))));var k=await s.EnterAsync(Guid.NewGuid());var clock=new TestClock();var wire=new Wire{ChatReply="{\"speech\":\"Back away from that creature.\",\"reason\":\"danger\",\"memory\":[]}"};var coach=new HuggingFaceCoach(s,new HuggingFace(new HttpClient(wire),"hf_test"),clock);long n=0;
@@ -143,6 +143,12 @@ static class HfChecks
    var wire=new Wire{ChatReply="{\"speech\":\"I would keep some distance.\",\"memory\":[{\"kind\":\"learned_fact\",\"text\":\"punched creature\",\"subject\":\"walker\",\"evidence\":\"observation\"},{\"kind\":\"encounter_start\",\"text\":\"saw walker\",\"subject\":\"walker\",\"evidence\":\"observation\",\"episodeId\":\"imagined\"},{\"kind\":\"learned_fact\",\"text\":\"player describes blue stars\",\"subject\":\"stars\",\"evidence\":\"player_report\"},{\"kind\":\"persona_update\",\"text\":\"Shared nickname: captain.\"}]}"};
    await new HuggingFaceCoach(s,new HuggingFace(new HttpClient(wire),"hf_test")).TurnAsync(k,"blind","what should I do",false,localVoice:true);
    Assert(!s.State!.Facts.Any(f=>f.Contains("punched"))&&s.State.Encounters.Count==0,"no invented visual memories without imagery");Assert(s.State.Facts.Any(f=>f.Contains("blue stars"))&&s.State.Persona.Contains("captain"),"player reports and relationship memory still work");
+  }));
+
+  cases.Add(("hf","HfClientAudioEndIdleAlsoGatesCommentary",async()=>{
+   var s=new CoachSession(new WorldStore(Path.GetFullPath(".dev/checks/"+Guid.NewGuid().ToString("N"))));var k=await s.EnterAsync(Guid.NewGuid());var clock=new TestClock();var wire=new Wire();var coach=new HuggingFaceCoach(s,new HuggingFace(new HttpClient(wire),"hf_test"),clock);long n=0;
+   async Task<TurnResult> Turn(double idle){s.Observe(new(k,++n,DateTimeOffset.UtcNow,true,true,100,100,false,800,600,"AA==",[]));return await coach.TurnAsync(k,"idle"+n,"",true,localVoice:true,idleSeconds:idle);}
+   Assert((await Turn(0)).Speech=="","initial quiet");clock.Now=clock.Now.AddSeconds(50);Assert((await Turn(10)).Speech=="","do not talk again ten seconds after audio actually ended");clock.Now=clock.Now.AddSeconds(1);Assert((await Turn(46)).Speech!="","eligible after both quiet clocks pass");
   }));
   cases.Add(("hf","HfCreditErrorIsSafeAndPermanent",async()=>{
    var hf=new HuggingFace(new HttpClient(new Wire{Status=402}),"hf_private_test");
